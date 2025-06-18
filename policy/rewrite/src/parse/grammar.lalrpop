@@ -1,0 +1,354 @@
+// Copyright (c) Mobile Ownership, mobileownership.org.  All Rights Reserved.  See LICENSE.md in the project root for license information.
+
+use std::rc::Rc;
+use crate::parse::actions;
+use crate::parse::lexer::{PolicyToken, LexicalError, Position};
+use crate::data::uri::DidUri;
+use crate::data::DidValue;
+use crate::machine::sorts::*;
+
+grammar;
+
+pub Constant: Rc<DidValue> = {
+    <MapConstant>,
+    <ListConstant>,
+    <Primitive>,
+}
+
+pub Term: Rc<DidValue> = {
+    <Cell>,
+    <CellGet>,
+    <CellSet>,
+    <Dereference>,
+    <Function>,
+    <IfThenElse>,
+    <Match>,
+    <PolicyTerm>,
+    <Receive>,
+    <Send>,
+    <Throw>,
+    <Try>,
+    <LazyBooleanTerm>,
+}
+
+AtomicTerm: Rc<DidValue> = {
+    <AsPattern>,
+    <Primitive>,
+    <Eval>,
+    <ForInLoop>,
+    <Let>,
+    <Lookup>,
+    <Map>,
+    <List>,
+    <Set>,
+    <Tuple>,
+    <Sequence>,
+    <WhileLoop>,
+}
+
+Let: Rc<DidValue> = {
+    "let" <pattern: AtomicTerm> "=" <term: Term> "in" <in_term: SequenceItems> "end" => 
+        sort_let::LetValue::create(false, pattern, term, in_term)
+}
+
+Function: Rc<DidValue> = {
+    "fun" <pattern: AtomicTerm> "->" <term: Term> => 
+        sort_function::FunctionValue::create(pattern, term, None, None)
+}
+
+IfThenElse: Rc<DidValue> = {
+    "if" <condition: LazyBooleanTerm> "then" <then_term: AtomicTerm> <else_term: Else?> => 
+        sort_if::IfValue::create_for_parser(condition, then_term, else_term)
+}
+
+Else: Rc<DidValue> = {
+    "elif" <condition: LazyBooleanTerm> "then" <then_term: AtomicTerm> <else_term: Else?> => 
+        sort_if::IfValue::create_for_parser(condition, then_term, else_term),
+    "else" <else_term: AtomicTerm> => else_term,
+}
+
+Rules: Rc<DidValue> = {
+    <rules: Rule+> => sort_match::RuleValue::create_rules_for_parser(rules)
+}
+
+Rule: Rc<DidValue> = {
+    "|" <pattern: AtomicTerm> <guard:("when" <AtomicTerm>)?> "->" <term: AtomicTerm> => 
+        sort_match::RuleValue::create_for_parser(pattern, guard, term)
+}
+
+AsPattern: Rc<DidValue> = {
+    <term: AtomicTerm> "as" <name: "ident"> => sort_as::AsValue::create(term, Rc::new(name.into())),    
+}
+
+Match: Rc<DidValue> = {
+    "match" <term: Term> "with" <rules: Rules> => 
+        sort_match::MatchValue::create(term, rules)
+}
+
+Receive: Rc<DidValue> = {
+    "receive" "on" <term: Term> "with" <rules: Rules> => 
+        sort_receive::ReceiveValue::create(Rc::new(DidValue::Null), term, rules)
+}
+
+PolicyTerm: Rc<DidValue> = {
+    "policy" <term: Term> "with" <rules: Rules> => 
+        sort_policy::PolicyValue::create(term, rules)
+}
+
+Throw: Rc<DidValue> = {
+    "throw" <term: AtomicTerm> => sort_try::ThrowValue::create(term)
+}
+
+Try: Rc<DidValue> = {
+    "try" <term: Term> "with" <rules: Rules> => 
+        sort_try::TryValue::create(term, rules)
+}
+
+Cell: Rc<DidValue> = {
+    "ref" <term: AtomicTerm> => sort_cell::CellValue::create(term)
+}
+
+CellGet: Rc<DidValue> = {
+    "!" <term: AtomicTerm> => sort_cell_get::CellGetValue::create(term)
+}
+
+CellSet: Rc<DidValue> = {
+    <pattern: AtomicTerm> ":=" <term: AtomicTerm> => sort_cell_set::CellSetValue::create(pattern, term)
+}
+
+Eval: Rc<DidValue> = {
+    "{=" <term: Term> "=}" => sort_eval::EvalValue::create("todo".to_string(), term)
+}
+
+ForInLoop: Rc<DidValue> = {
+    "for" <_pattern: AtomicTerm> "in" <_items: AtomicTerm> "do" <_term: SequenceItems> "end" => 
+        DidValue::new_map_constant()
+}
+
+WhileLoop: Rc<DidValue> = {
+    "while" <condition: AtomicTerm> "do" <term: SequenceItems> "end" => 
+        actions::while_loop(condition, term)
+}
+
+Send: Rc<DidValue> = {
+    // send m on c
+    "send" <message: Term> "on" <channel: Term> => 
+        sort_send::SendValue::create(channel, message)
+}
+
+Dereference: Rc<DidValue> = {
+    "@" <term: AtomicTerm> => sort_dereference::DereferenceValue::create(term)
+}
+
+LazyBooleanTerm: Rc<DidValue> = {
+    <left:LazyBooleanTerm> "||" <right:CompareTerm> => actions::lazy_boolean_or(left, right),
+    <left:LazyBooleanTerm> "&&" <right:CompareTerm> => actions::lazy_boolean_and(left, right),
+    CompareTerm,
+}
+
+CompareTerm: Rc<DidValue> = {
+    <left:CompareTerm> "<" <right:AdditionTerm> => actions::apply_infix("<", left, right),
+    <left:CompareTerm> ">" <right:AdditionTerm> => actions::apply_infix(">", left, right),
+    <left:CompareTerm> "<=" <right:AdditionTerm> => actions::apply_infix("<=", left, right),
+    <left:CompareTerm> ">=" <right:AdditionTerm> => actions::apply_infix(">=", left, right),
+    <left:CompareTerm> "=" <right:AdditionTerm> => actions::apply_infix("=", left, right),
+    <left:CompareTerm> "<>" <right:AdditionTerm> => actions::apply_infix("<>", left, right),
+    AdditionTerm,
+}
+
+AdditionTerm: Rc<DidValue> = {
+    <left:AdditionTerm> "+" <right:MultTerm> => actions::apply_infix("+", left, right),
+    <left:AdditionTerm> "-" <right:MultTerm> => actions::apply_infix("-", left, right),
+    MultTerm,
+}
+
+MultTerm: Rc<DidValue> = {
+    <left:MultTerm> "*" <right:Application> => actions::apply_infix("*", left, right),
+    <left:MultTerm> "/" <right:Application> => actions::apply_infix("/", left, right),
+    <left:MultTerm> "%" <right:Application> => actions::apply_infix("%", left, right),
+    Application,
+}
+
+Application: Rc<DidValue> = {
+    <fun: Application> <arg: AtomicTerm> => sort_application::ApplicationValue::create(fun, arg),
+    <AtomicTerm>,
+}
+
+Map: Rc<DidValue> = {
+    "{" <items:SeparatedMapItem*> <last:LastMapItem?> "}" => sort_map::MapValue::create_for_parser(items, last)
+}
+
+SeparatedMapItem: Rc<DidValue> = {
+    <key: String> ":" <value: Term> <parallel: CommaSeparator> => sort_map::MapItemValue::create(key, value, parallel),
+    <key: "ident"> ":" <value: Term> <parallel: CommaSeparator> => sort_map::MapItemValue::create(Rc::new(key.into()), value, parallel),
+}
+
+LastMapItem: Rc<DidValue> = {
+    <key: String> ":" <value: Term> => sort_map::MapItemValue::create(key, value, Rc::new(false.into())),
+    <key: "ident"> ":" <value: Term> => sort_map::MapItemValue::create(Rc::new(key.into()), value, Rc::new(false.into())),
+}
+
+List: Rc<DidValue> = {
+    "[" <items:SeparatedListItem*> <last:Term?> "]" => sort_list::ListValue::create_for_parser(items, last)
+}
+
+Set: Rc<DidValue> = {
+    "{[" <items:SeparatedListItem*> <last:Term?> "]}" => sort_set::SetValue::create_for_parser(items, last)
+}
+
+Tuple: Rc<DidValue> = {
+    "(" <items:SeparatedListItem*> <last:Term?> ")" => sort_tuple::TupleValue::create_for_parser(items, last)
+}
+
+SeparatedListItem: Rc<DidValue> = {
+    <term: Term> <parallel: CommaSeparator> => sort_list::ListItemValue::create(term, parallel)
+}
+
+Sequence: Rc<DidValue> = {
+    "begin" <items: SequenceItems> "end" => items
+}
+
+SequenceItems: Rc<DidValue> = {
+    <items:SeparatedSequenceItem*> <last:Term?> => sort_sequence::SequenceValue::create_for_parser(items, last)
+}
+
+SeparatedSequenceItem: Rc<DidValue> = {
+    <term: Term> <parallel: SemicolonSeparator> => sort_list::ListItemValue::create(term, parallel)
+}
+
+CommaSeparator: Rc<DidValue> = {
+    "," => Rc::new(false.into()),
+    "|," => Rc::new(true.into()),
+}
+
+SemicolonSeparator: Rc<DidValue> = {
+    ";" => Rc::new(false.into()),
+    "|;" => Rc::new(true.into()),
+}
+
+Lookup: Rc<DidValue> = {
+    <term: AtomicTerm> "." <name: "ident"> => actions::member_lookup(term, Rc::new(name.into())),
+    <name: "ident"> => sort_lookup::LookupValue::create(name.as_str())
+}
+
+MapConstant: Rc<DidValue> = {
+    "{" <items:(<MapConstantItem> ",")*> <last:MapConstantItem?> "}" => actions::map_constant(items, last)
+}
+
+MapConstantItem: (String, Rc<DidValue>) = {
+    <key: "string"> ":" <value: Constant> => (key, value),
+    <key: "ident"> ":" <value: Constant> => (key, value),
+}
+
+ListConstant: Rc<DidValue> = {
+    "[" <items:(<Constant> ",")*> <last:Constant?> "]" => actions::list_constant(items, last)
+}
+
+Primitive: Rc<DidValue> = {
+    <DidUri>,
+    <String>,
+    <Integer>,
+    <Double>,
+    <Boolean>,
+    <Null>,
+}
+
+DidUri: Rc<DidValue> = {
+    <uri: "uri"> => Rc::new(DidValue::Uri(Box::new(uri)))
+}
+
+String: Rc<DidValue> = {
+    <s: "string"> => Rc::new(s.into())
+}
+
+Integer: Rc<DidValue> = {
+    <i: "integer"> => Rc::new(i.into())
+}
+
+Double: Rc<DidValue> = {
+    <d: "double"> => Rc::new(d.into())
+}
+
+Boolean: Rc<DidValue> = {
+    "true" => Rc::new(DidValue::Boolean(true)),
+    "false" => Rc::new(DidValue::Boolean(false)),
+}
+
+Null: Rc<DidValue> = {
+    "null" => Rc::new(DidValue::Null)
+}
+
+
+extern {
+    type Location = Position;
+    type Error = LexicalError;
+
+    enum PolicyToken {
+        "=" =>          PolicyToken::Equal,
+        "+" =>          PolicyToken::Add,
+        "-" =>          PolicyToken::Sub,
+        "*" =>          PolicyToken::Mul,
+        "/" =>          PolicyToken::Div,
+        "%" =>          PolicyToken::Mod,
+        "@" =>          PolicyToken::AtSign,
+        "<" =>          PolicyToken::LessThan,
+        ">" =>          PolicyToken::GreaterThan,
+        "<=" =>         PolicyToken::LessOrEqual,
+        ">=" =>         PolicyToken::GreaterOrEqual,
+        "<>" =>         PolicyToken::NotEqual,
+        "||" =>         PolicyToken::BooleanOr,
+        "&&" =>         PolicyToken::BooleanAnd,
+        "(" =>          PolicyToken::LeftParen,
+        ")" =>          PolicyToken::RightParen,
+        "[" =>          PolicyToken::LeftBracket,
+        "]" =>          PolicyToken::RightBracket,
+        "{" =>          PolicyToken::LeftBrace,
+        "}" =>          PolicyToken::RightBrace,
+        "{[" =>         PolicyToken::LeftSetBrace,
+        "]}" =>         PolicyToken::RightSetBrace,
+        "{=" =>         PolicyToken::LeftEvalBrace,
+        "=}" =>         PolicyToken::RightEvalBrace,
+        "->" =>         PolicyToken::RightArrow,
+        "." =>          PolicyToken::Dot,
+        "," =>          PolicyToken::Comma,
+        ":" =>          PolicyToken::Colon,
+        ";" =>          PolicyToken::Semicolon,
+        "|" =>          PolicyToken::Bar,
+        "|," =>         PolicyToken::BarComma,
+        "|;" =>         PolicyToken::BarSemicolon,
+        "!" =>          PolicyToken::Bang,
+        ":=" =>         PolicyToken::ColonEqual,
+        "as" =>         PolicyToken::As,
+        "begin" =>      PolicyToken::Begin,
+        "do" =>         PolicyToken::Do,
+        "elif" =>       PolicyToken::Elif,
+        "else" =>       PolicyToken::Else,
+        "end" =>        PolicyToken::End,
+        "for" =>        PolicyToken::For,
+        "fun" =>        PolicyToken::Fun,
+        "if" =>         PolicyToken::If,
+        "in" =>         PolicyToken::In,
+        "let" =>        PolicyToken::Let,
+        "match" =>      PolicyToken::Match,
+        "on" =>         PolicyToken::On,
+        "policy" =>     PolicyToken::Policy,
+        "receive" =>    PolicyToken::Receive,
+        "ref" =>        PolicyToken::Ref,
+        "send" =>       PolicyToken::Send,
+        "then" =>       PolicyToken::Then,
+        "throw" =>      PolicyToken::Throw,
+        "try" =>        PolicyToken::Try,
+        "use" =>        PolicyToken::Use,
+        "when" =>       PolicyToken::When,
+        "while" =>      PolicyToken::While,
+        "with" =>       PolicyToken::With,
+        "uri" =>        PolicyToken::DidUri(<DidUri>),
+        "ident" =>      PolicyToken::Ident(<String>),
+        "string" =>     PolicyToken::String(<String>),
+        "integer" =>    PolicyToken::Integer(<i64>),
+        "double" =>     PolicyToken::Double(<f64>),
+        "true" =>       PolicyToken::True,
+        "false" =>      PolicyToken::False,
+        "null" =>       PolicyToken::Null,
+    }
+}

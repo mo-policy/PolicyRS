@@ -1,0 +1,21 @@
+{ 
+    "id": (@`did:policy:std/policy/did/id`) "policy" |,
+    "alsoKnownAs": {[ `did:policy:didcomm:receive` ]}, 
+    "policy":  
+        receive on `did:policy:receiver:987654` with
+        | { 
+            type: "https://didcomm.org/trust-ping/2.0/ping",
+          } as msg -> begin
+            if msg.body.response_requested then begin
+                let response = 
+                    {
+                        type: "https://didcomm.org/trust-ping/2.0/ping-response",
+                        id: "e002518b-456e-b3d5-de8e-7a86fe472847",
+                        thid: msg.id,
+                    }
+                in 
+                    send response on msg.from
+                end
+            end
+        end
+}

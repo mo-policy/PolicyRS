@@ -1,0 +1,31 @@
+{
+  "alsoKnownAs": {[ `did:policy:test:std:math` ]},
+  "policy": {
+    "add_dd": 1.1 + 2.2,
+    "add_di": 1.1 + 2,
+    "add_id": 1 + 2.2,
+    "add_ii": 1 + 2,
+
+    "sub_dd": 1.1 - 2.2,
+    "sub_di": 1.1 - 2,
+    "sub_id": 1 - 2.2,
+    "sub_ii": 1 - 2,
+
+    "mul_dd": 1.1 * 2.2,
+    "mul_di": 1.1 * 2,
+    "mul_id": 1 * 2.2,
+    "mul_ii": 1 * 2,
+
+    "div_dd": 1.1 / 2.2,
+    "div_di": 1.1 / 2,
+    "div_id": 1 / 2.2,
+    "div_ii": 1 / 2,
+
+    "rem_dd": 1.1 % 2.2,
+    "rem_di": 1.1 % 2,
+    "rem_id": 1 % 2.2,
+    "rem_ii": 1 % 2,
+
+    "complex_1": 1 + 2 * 3 / 4 % 5,
+  }
+}

@@ -1,0 +1,18 @@
+{ 
+    "id": (@`did:policy:std/policy/did/id`) "policy" |,
+    "alsoKnownAs": {[ `did:policy:didcomm:send` ]},
+    "policy":  
+        let ping_send = { 
+            type: "https://didcomm.org/trust-ping/2.0/ping",
+            id: "518be002-de8e-456e-b3d5-8fe472477a86",
+            from: `did:policy:sender:123456`,
+            body: {
+                response_requested: true
+            }
+        } 
+        in 
+            send ping_send on `did:policy:receiver:987654`;
+            receive on `did:policy:sender:123456` with 
+            | ping_response -> ping_response
+        end
+}
