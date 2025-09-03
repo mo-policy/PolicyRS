@@ -59,3 +59,29 @@
 
     Also,  spreadsheet programs are similar to Policy Language, though Policy Language produces DID documents, not tables of data, and Policy Language reduces in-place where as spreadsheets retain their code expressions as the programmer wrote them, keeping the data and the code. Policy Language will probably have this feature someday, but for now it reduces and overwrites the executing program. This choice to update in-place makes more sense when considering the hashing of Policy Programs. Policy programs are identified by their hashes (in the DID for the program, e.g., did:policy:12345abcd) so any version of a Policy program is always identifiable.
 
+5. What works in the interpreter, what doesn't, and what's planned?
+
+    There are two implementations of a Policy Language intepreter. One in JavaScript (PolicyJS) and one in Rust (PolicyRS). PolicyRS is the most recent and reflects the current (as of June 2025) design of Policy Language. In time PolicyJS should be brought up-to-date with PolicyRS, but for now PolicyJS is not being actively developed.
+
+    Here are the major components of the PolicyRS intpreter and their status as of June 2025.
+
+    * Rewrite
+
+        The rewrite component is the heart of the interpreter. It performs the depth first traversal of a Policy program, detecting values which are sorts and performing the appropriate rewrite function. Rewrites are substantially complete for every sort, with the exception of looping constucts. There are tests for normal execution of each sort, and a blocked execution. The tests and implementation serve as a specification for Policy Language, also documented here. If there's a conflict between the PolicyRS rewrite implementation and the documentation, the PolicyRS implementation is likely more true to the intended design.
+
+        There's a PolicyML parser implemented using the Rust parser and lexer tools of LALRPOP and Logos. These work well enough to write simple Policy programs but are not robust. There are no error messages and syntax precedence is not refined. You'll need to experiment with wrapping expressions in parenthesis to get a correct or successful parse.
+
+        What's not complete? 
+
+            * Errors. There's no consi.stent design or implentation for errors or exceptions. There's no consistent treatment of type checking
+
+            * Pattern Matching. Pattern matching is only implemented for a few sorts, such as Constant, Lookup, and the container types of Map, List, Set, and Tuple. There are very few tests for pattern matching.
+
+        What's planned?
+
+            * Retainer Metering. It's planned to implement a cost for every action of the interpreter, called a retainer (similar to gas). The specifics are not designed, but likely handling each node will have a unit cost. For example reducing a list of three constants would have a four unit cost, one for each list element and one for the list itself. Running out of retainer would produce a blocked result and terminate the subsequent execution with a positive retainer ballance.
+
+            * Normalization of Hashing. Rust hashes are u64 which affect the meaning of Policy comparison. At the same time, Policy DIDs will use cryptograhic hashes, which are likely going to be open to specification within the Policy DID document. These need to agree, and this is likely inconsistent today. Also, the retainer cost system will likely charge a unit fee for each node traversal, so using hashing to avoid traversals will benefit the user. The current implementation is not consistent across the areas which would perform a traversal of the nodes.
+
+            
+6. What is meant by 'blocked'?
